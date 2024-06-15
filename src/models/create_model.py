@@ -81,7 +81,10 @@ def create_gan_instances(model_arch_config, data_config):
 def create_gan_model(model_arch_config, data_config, train_config, accelerator, torch_dtype):
     generator, discriminator = create_gan_instances(model_arch_config, data_config)
     num_classes = int(data_config['num_classes'])
-    return GanModel(generator, discriminator, num_classes, accelerator, torch_dtype, model_arch_config, train_config)
+    image_column_name = data_config['image_column_name']
+    label_column_name = data_config['label_column_name']
+    
+    return GanModel(generator, discriminator, num_classes, accelerator, torch_dtype, model_arch_config, train_config, image_column_name, label_column_name)
 
 # custom weights initialization, used by the generator and discriminator
 def weights_init(m):

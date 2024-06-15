@@ -81,9 +81,9 @@ def _get_model_dir(config):
 
 
 # Takes in pytorch's data-loader, and saves the training images in given directory
-def save_train_batch(data_loader, save_path: str, device=torch.device('cpu')):
+def save_train_batch(data_loader, save_path: str, device=torch.device('cpu'), image_column_name='image'):
     # Save training images
-    batch_images = get_data_batch(data_loader, device)
+    batch_images = get_data_batch(data_loader, device, image_column_name=image_column_name)
     batch_images = unnormalize(batch_images).to(torch.float32)
     # batch_images = color_transform(batch_images.to(torch.float32))
     save_images(batch_images, save_path)

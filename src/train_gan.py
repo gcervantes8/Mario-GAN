@@ -80,6 +80,7 @@ def train(config_file_path: str):
     
     # Creates data-loader
     data_config = config['DATA']
+    image_column_name, label_column_name = data_config['image_column_name'], data_config['label_column_name']
     data_config['image_height'] = str(int(data_config['base_height']) * (2 ** int(data_config['upsample_layers'])))
     data_config['image_width'] = str(int(data_config['base_width']) * (2 ** int(data_config['upsample_layers'])))
 
@@ -87,13 +88,17 @@ def train(config_file_path: str):
     # Eval data loader is done to keep the same label distribution when evaluating
     eval_data_loader = data_loader_from_config(data_config, image_dtype=torch_dtype, using_gpu=not running_on_cpu)
     # logging.info('Data size is ' + str(len(data_loader)) + ' images')
-    logging.info('Data size is ' + str(data_loader.info.splits['train'].num_examples) + ' images')
-
+    # num_train_images = data_loader.info.splits['train'].num_examples
+    num_train_images = len(data_loader.dataset)
+    logging.info('Data size is ' + str(num_train_images) + ' images')
+    batch_size = int(data_config['batch_size'])
     # Save training images
-    batched_dataset = data_loader.iter(batch_size=int(data_config['batch_size']))
+    batched_dataset = data_loader
+    # batched_dataset = data_loader.iter(batch_size=int(data_config['batch_size']))
     batched_dataset, eval_data_loader = accelerator.prepare(batched_dataset, eval_data_loader)
-    saver_and_loader.save_train_batch(batched_dataset, os.path.join(img_dir, 'train_batch.png'))
-    num_classes = int(data_config['num_classes'])
+    saver_and_loader.save_train_batch(batched_dataset, os.path.join(img_dir, 'train_batch.png'), image_column_name=image_column_name)
+    num_classes = get_num_classes(data_loader, label_column_name)
+    data_config['num_classes'] = str(num_classes)
     logging.info('Number of different image labels: ' + str(num_classes))
     model_arch_config = config['MODEL ARCHITECTURE']
 
@@ -121,10 +126,10 @@ def train(config_file_path: str):
     if compute_is or compute_fid:
         logging.info('Initializing metrics ...')
         metrics_scorer = Metrics(compute_is, compute_fid, device=device)
-        metrics_scorer.aggregate_data_loader_images(data_loader, n_images_to_eval, device, real=True)
+        metrics_scorer.aggregate_data_loader_images(batched_dataset, n_images_to_eval, device, real=True)
         if not will_restore_model:
             logging.info('Computing metrics for real images ...')
-            metrics_scorer.aggregate_data_loader_images(data_loader, n_images_to_eval, device, real=False)
+            metrics_scorer.aggregate_data_loader_images(batched_dataset, n_images_to_eval, device, real=False)
             is_score, fid_score = metrics_scorer.score_metrics(compute_is, compute_fid)
             metrics_scorer.reset_metrics()
             metrics_scorer.log_scores(is_score, fid_score)
@@ -135,7 +140,7 @@ def train(config_file_path: str):
             _, labels = next(iter(eval_data_loader))
             labels = labels.to(device)
         else:
-            labels = torch.arange(start=0, end=int(data_config['batch_size']), device=device,
+            labels = torch.arange(start=0, end=batch_size, device=device,
                                     dtype=torch.int16) % num_classes
         return noise, labels
     fixed_noise, fixed_labels = create_noise_and_labels()
@@ -168,7 +173,7 @@ def train(config_file_path: str):
     n_steps = 0
     accumulation_iterations = int(train_config['accumulation_iterations'])
     is_channel_last = train_config.getboolean('channels_last')
-    steps_in_epoch = int(len(data_loader) / accumulation_iterations)
+    steps_in_epoch = int(num_train_images / (accumulation_iterations * batch_size))
     total_g_error, total_d_error = 0.0, 0.0
     g_steps, d_steps = 0, 0
     data_time, model_time = 0.0, 0.0
@@ -177,7 +182,7 @@ def train(config_file_path: str):
     logging.info('Started Training Loop')
     batches_accumulated = []
     for epoch in range(n_epochs):
-        for i, batch in enumerate(data_loader, 0):
+        for i, batch in enumerate(batched_dataset, 0):
             
             if is_channel_last:
                 real_data, _ = batch

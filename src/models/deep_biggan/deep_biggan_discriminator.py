@@ -24,8 +24,15 @@ class DeepBigganDiscriminator(BaseDiscriminator):
         # [B, ndf, image_width, image_height]
         initial_conv = spectral_norm(nn.Conv2d(3, ndf, kernel_size=3, padding='same'), eps=1e-04)
         nn.init.orthogonal_(initial_conv.weight)
-
-        if upsample_layers == 5:
+        if upsample_layers == 3:
+            residual_channels = [ndf, ndf * 2, ndf * 2, ndf * 4, ndf * 4, ndf * 8, ndf * 8]
+            downsample_layers = [True, False, True, False, True, False]
+            nonlocal_block_index = 0
+        elif upsample_layers == 4:
+            residual_channels = [ndf, ndf * 2, ndf * 2, ndf * 4, ndf * 4, ndf * 8, ndf * 8, ndf * 16, ndf * 16]
+            downsample_layers = [True, False, True, False, True, False, True, False]
+            nonlocal_block_index = 0
+        elif upsample_layers == 5:
             residual_channels = [ndf, ndf * 2, ndf * 2, ndf * 4, ndf * 4, ndf * 8, ndf * 8, ndf * 16, ndf * 16,
                                  ndf * 16, ndf * 16]
             downsample_layers = [True, False, True, False, True, False, True, False, True, False]
@@ -59,11 +66,13 @@ class DeepBigganDiscriminator(BaseDiscriminator):
         self.discrim_layers.append(nn.ReLU())
 
         self.project_labels = project_labels
+        
+        last_channel_size = residual_channels[-1]
         if self.project_labels:
-            self.embeddings = torch.nn.Embedding(num_classes, ndf * 16)
+            self.embeddings = torch.nn.Embedding(num_classes, last_channel_size)
             nn.init.orthogonal_(self.embeddings.weight)
         # Fully connected layer
-        self.fc_layer = spectral_norm(nn.Linear(in_features=ndf * 16, out_features=output_size), eps=1e-04)
+        self.fc_layer = spectral_norm(nn.Linear(in_features=last_channel_size, out_features=output_size), eps=1e-04)
         nn.init.orthogonal_(self.fc_layer.weight)
 
     def set_channels_last(self):

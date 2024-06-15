@@ -30,11 +30,17 @@ class DeepBigganGenerator(BaseGenerator):
 
         latent_embed_vector_size = latent_vector_size + embedding_size
 
-        self.initial_linear = spectral_norm(nn.Linear(in_features=latent_embed_vector_size,
-                                                      out_features=base_width * base_height * 16 * ngf), eps=1e-04)
-        nn.init.orthogonal_(self.initial_linear.weight)
-
-        if upsample_layers == 5:
+        if upsample_layers == 3:
+            residual_channels = [ngf * 8, ngf * 8, ngf * 4, ngf * 4, ngf * 2,
+                                 ngf * 2, ngf]
+            upsample_layers = [False, True, False, True, False, True]
+            self.nonlocal_block_index = 3
+        elif upsample_layers == 4:
+            residual_channels = [ngf * 16, ngf * 16, ngf * 8, ngf * 8, ngf * 4, ngf * 4, ngf * 2,
+                                 ngf * 2, ngf]
+            upsample_layers = [False, True, False, True, False, True, False, True]
+            self.nonlocal_block_index = 5
+        elif upsample_layers == 5:
             residual_channels = [ngf * 16, ngf * 16, ngf * 16, ngf * 16, ngf * 8, ngf * 8, ngf * 4, ngf * 4, ngf * 2,
                                  ngf * 2, ngf]
             upsample_layers = [False, True, False, True, False, True, False, True, False, True]
@@ -45,9 +51,14 @@ class DeepBigganGenerator(BaseGenerator):
             upsample_layers = [False, True, False, True, False, True, False, True, False, True, False, True]
             self.nonlocal_block_index = 7
         else:
-            raise NotImplementedError(str(upsample_layers) + ' layers for biggan discriminator is not supported.  You'
-                                                             ' can either use a different amount of layers, or make a'
+            raise NotImplementedError(str(upsample_layers) + ' layers for deep biggan generator is not supported.  You'\
+                                                             ' can either use a different amount of layers, or make a'\
                                                              ' list with the channels you want with those layers')
+        last_dimension_size = residual_channels[-1]
+        self.first_dimension_size = residual_channels[0]
+        self.initial_linear = spectral_norm(nn.Linear(in_features=latent_embed_vector_size,
+                                            out_features=base_width * base_height * self.first_dimension_size), eps=1e-04)
+        nn.init.orthogonal_(self.initial_linear.weight)
         self.generator_layers_pre_attn = nn.Sequential()
         self.generator_layers_post_attn = nn.Sequential()
         self.generator_layers_pre_attn.append(DeepResUp(residual_channels[0], residual_channels[1], latent_embed_vector_size,
@@ -66,9 +77,9 @@ class DeepBigganGenerator(BaseGenerator):
             previous_out_channel = layer_channel
 
         self.end_ops = nn.Sequential()
-        self.end_ops.append(nn.BatchNorm2d(num_features=ngf))
+        self.end_ops.append(nn.BatchNorm2d(num_features=last_dimension_size))
         self.end_ops.append(nn.ReLU())
-        conv_op = nn.Conv2d(ngf, 3, kernel_size=3, padding='same')
+        conv_op = nn.Conv2d(last_dimension_size, 3, kernel_size=3, padding='same')
         nn.init.orthogonal_(conv_op.weight)
         self.end_ops.append(conv_op)
         self.end_ops.append(nn.Tanh())
@@ -90,7 +101,7 @@ class DeepBigganGenerator(BaseGenerator):
         out = self.initial_linear(latent_embed_vector)
 
         # [B, 16 * ngf, 4, 4]
-        out = out.view(batch_size, 16 * self.ngf, self.base_height, self.base_width)
+        out = out.view(batch_size, self.first_dimension_size, self.base_height, self.base_width)
 
         gen_input = out, latent_embed_vector
         out, _ = self.generator_layers_pre_attn(gen_input)
@@ -113,7 +124,7 @@ class DeepBigganGenerator(BaseGenerator):
         out = self.initial_linear(latent_embed_vector)
 
         # [B, 16 * ngf, 4, 4]
-        out = torch.reshape(out, [batch_size, 16 * self.ngf, self.base_height, self.base_width])
+        out = torch.reshape(out, [batch_size, self.first_dimension_size, self.base_height, self.base_width])
         for i, generator_layer in enumerate(self.generator_layers):
             out = generator_layer(out, latent_embed_vector)
             if i == self.nonlocal_block_index:

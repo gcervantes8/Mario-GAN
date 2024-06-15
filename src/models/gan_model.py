@@ -19,7 +19,7 @@ import os
 
 class GanModel:
 
-    def __init__(self, generator, discriminator, num_classes, accelerator, torch_dtype, model_arch_config, train_config):
+    def __init__(self, generator, discriminator, num_classes, accelerator, torch_dtype, model_arch_config, train_config, image_column_name, label_column_name):
         
         if train_config.getboolean('channels_last'):
             discriminator.set_channels_last()
@@ -43,7 +43,8 @@ class GanModel:
         self.accumulation_iterations = int(train_config['accumulation_iterations'])
         self.mixed_precision = train_config.getboolean('mixed_precision')
         self.batch_iterations = 0
-        
+        self.image_column_name = image_column_name
+        self.label_column_name = label_column_name
         self.criterion, self.fake_label, self.real_label = supported_loss_functions(train_config['loss_function'])
         if self.criterion is None:
             raise ValueError("Loss given not found: " + train_config['loss_function'] + 
@@ -111,7 +112,7 @@ class GanModel:
         for batch in batches_accumulated:
             with self.accelerator.no_sync(self.netD):
                 
-                real_data, labels = torch.Tensor(batch['img']), torch.Tensor(batch['label'])
+                real_data, labels = batch[self.image_column_name], batch[self.label_column_name]
                 b_size = real_data.size(dim=0)
                 accum_labels.append(labels)
                 
